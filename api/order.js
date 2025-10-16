@@ -9,12 +9,12 @@ export default async function handler(req, res) {
   try {
     const order = req.body;
 
-    // Order details from Shopify webhook
+    // Get order amount and currency from Shopify
     const amount = order.total_price;
     const orderCurrency = order.currency ? order.currency.toUpperCase() : 'EUR';
     const NOW_API_KEY = process.env.NOWPAYMENTS_API_KEY;
 
-    // --- SUPPORTED CURRENCIES CONFIG ---
+    // --- SUPPORTED CURRENCIES ---
     const supportedFiat = [
       'USD', 'EUR', 'GBP', 'CHF', 'CAD', 'AUD', 'NZD', 'JPY', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF'
     ];
@@ -23,24 +23,21 @@ export default async function handler(req, res) {
       'BTC', 'ETH', 'USDT', 'USDC', 'XRP', 'BNB', 'SOL', 'ADA', 'DOGE', 'TRX'
     ];
 
-    // Default pay currency
+    // Determine pay_currency
     let payCurrency;
-
-    // --- LOGIC ---
-    // If Shopify order is in fiat → offer crypto conversion
     if (supportedFiat.includes(orderCurrency)) {
-      payCurrency = 'BTC'; // default crypto target
-    }
-    // If order is already in crypto (e.g. from custom logic later)
-    else if (supportedCrypto.includes(orderCurrency)) {
+      payCurrency = 'BTC'; // default crypto for fiat orders
+    } else if (supportedCrypto.includes(orderCurrency)) {
       payCurrency = orderCurrency;
-    }
-    // If unknown currency, fallback to EUR→BTC
-    else {
-      payCurrency = 'BTC';
+    } else {
+      payCurrency = 'BTC'; // fallback
     }
 
-    // --- CREATE PAYMENT ON NOWPayments ---
+    // --- Fix for safe order_id ---
+    // Shopify order.id can be too large for JS, so we use order_number
+    const safeOrderId = parseInt(order.order_number);
+
+    // --- Create payment on NOWPayments ---
     const response = await fetch('https://api.nowpayments.io/v1/payment', {
       method: 'POST',
       headers: {
@@ -51,7 +48,7 @@ export default async function handler(req, res) {
         price_amount: amount,
         price_currency: orderCurrency,
         pay_currency: payCurrency,
-        order_id: order.id,
+        order_id: safeOrderId,
         order_description: `Order #${order.name} from Zenitha`
       })
     });
@@ -63,10 +60,10 @@ export default async function handler(req, res) {
       throw new Error(`NOWPayments error: ${data.message || JSON.stringify(data)}`);
     }
 
-    // --- RETURN UNIQUE LINK ---
+    // Return the unique payment link
     return res.status(200).json({
       message: 'Payment link created successfully',
-      order_id: order.id,
+      order_id: safeOrderId,
       fiat_currency: orderCurrency,
       crypto_currency: payCurrency,
       payment_url: data.invoice_url || data.payment_url
@@ -77,4 +74,3 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: error.message || 'Error creating payment' });
   }
 }
-
