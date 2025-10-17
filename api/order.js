@@ -10,11 +10,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { id, email, total_price, currency } = req.body;
+    // Grab Shopify order data
+    const { id, email, total_price, currency, customer } = req.body;
 
-    if (!email) {
-      throw new Error('Customer email is missing');
-    }
+    // Ensure we have a valid customer email
+    const customerEmail = email || customer?.email || 'info@zenitha.me';
+    console.log('Customer email for order:', customerEmail);
 
     // Shopify order ID may be too large — take last 8 digits to ensure a safe number
     const orderId = Number(String(id).slice(-8));
@@ -25,7 +26,7 @@ export default async function handler(req, res) {
     const amount = parseFloat(total_price);
     const orderCurrency = currency ? currency.toUpperCase() : 'EUR';
 
-    // ✅ Create NOWPayments invoice (supports all main fiat + crypto)
+    // Create NOWPayments invoice (supports all main fiat + crypto)
     const response = await fetch('https://api.nowpayments.io/v1/invoice', {
       method: 'POST',
       headers: {
@@ -39,7 +40,7 @@ export default async function handler(req, res) {
         order_description: `Order #${orderId} from Zenitha`,
         success_url: 'https://zenitha.me/pages/success',
         cancel_url: 'https://zenitha.me/pages/cancel',
-        is_fee_paid_by_user: true
+        is_fee_paid_by_user: true,
       }),
     });
 
@@ -51,21 +52,28 @@ export default async function handler(req, res) {
     }
 
     const paymentLink = data.invoice_url;
+    console.log('Payment link:', paymentLink);
 
-    // ✅ Send email to customer
-    await resend.emails.send({
-      from: 'Zenitha <info@zenitha.me>',
-      to: email,
-      subject: `Your Zenitha payment link (Order #${orderId})`,
-      html: `
-        <h2>Thank you for your order!</h2>
-        <p>Please complete your payment securely using the link below:</p>
-        <p><a href="${paymentLink}" target="_blank">💳 Pay Now</a></p>
-        <p>Amount: <b>${amount} ${orderCurrency}</b></p>
-        <p>If you've already paid, please ignore this message.</p>
-      `,
-    });
+    // Send email to customer via Resend
+    try {
+      const sendRes = await resend.emails.send({
+        from: 'Zenitha <info@zenitha.me>',
+        to: customerEmail,
+        subject: `Your Zenitha payment link (Order #${orderId})`,
+        html: `
+          <h2>Thank you for your order!</h2>
+          <p>Please complete your payment securely using the link below:</p>
+          <p><a href="${paymentLink}" target="_blank">💳 Pay Now</a></p>
+          <p>Amount: <b>${amount} ${orderCurrency}</b></p>
+          <p>If you've already paid, please ignore this message.</p>
+        `,
+      });
+      console.log('Resend send response:', JSON.stringify(sendRes, null, 2));
+    } catch (err) {
+      console.error('Resend send error:', err && err.toString ? err.toString() : err);
+    }
 
+    // Return success response
     return res.status(200).json({
       success: true,
       invoice_url: paymentLink,
