@@ -1,7 +1,7 @@
 import fetch from 'node-fetch';
 import { Resend } from 'resend';
 
-// Initialize Resend with your API key from Vercel
+// Initialize Resend with your API key from Vercel environment variables
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export default async function handler(req, res) {
@@ -16,11 +16,16 @@ export default async function handler(req, res) {
       throw new Error('Customer email is missing');
     }
 
-    const orderId = Number(id); // ensure numeric
+    // Shopify order ID may be too large — take last 8 digits to ensure a safe number
+    const orderId = Number(String(id).slice(-8));
+    if (isNaN(orderId)) {
+      throw new Error('Invalid order ID from Shopify');
+    }
+
     const amount = parseFloat(total_price);
     const orderCurrency = currency ? currency.toUpperCase() : 'EUR';
 
-    // ✅ Create NOWPayments invoice (supports all fiat + crypto)
+    // ✅ Create NOWPayments invoice (supports all main fiat + crypto)
     const response = await fetch('https://api.nowpayments.io/v1/invoice', {
       method: 'POST',
       headers: {
